@@ -1,7 +1,7 @@
 // events/interactionCreate.js
 const { Events } = require('discord.js');
 const characterHandler = require('../handlers/characterHandler');
-const createCharacterFlow = require('../handlers/CreateCharacterFlow');
+const createCharacterFlow = require('../handlers/createCharacterFlow');
 
 module.exports = {
     name: Events.InteractionCreate,
@@ -9,25 +9,29 @@ module.exports = {
         try {
             if (!interaction.isChatInputCommand()) return;
 
+            // Properly defer the reply for all slash commands to prevent timeout
+            await interaction.deferReply({ ephemeral: true });
+
+            // Use the correct path for createCharacterFlow
             if (interaction.commandName === 'create') {
-                return await createCharacterFlow(interaction, characterHandler, true);
+                return await createCharacterFlow(interaction, characterHandler, false);
             }
 
             const command = client.commands.get(interaction.commandName);
 
             if (!command) {
-                return interaction.reply({ 
-                    content: '❌ This command is no longer available.', 
-                    ephemeral: true 
+                return interaction.editReply({ 
+                    content: '❌ This command is no longer available.'
                 });
             }
 
-            await command.execute(interaction, true);
+            await command.execute(interaction, client);
         } catch (error) {
             console.error('Error in interactionCreate:', error);
-            await interaction.reply({ 
-                content: '❌ An error occurred while executing that command.', 
-                ephemeral: true 
+            // Use editReply instead of reply since we've already deferred
+            const replyMethod = interaction.deferred ? interaction.editReply : interaction.reply;
+            await replyMethod.call(interaction, { 
+                content: '❌ An error occurred while executing that command.'
             });
         }
     }

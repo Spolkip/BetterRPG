@@ -3,7 +3,7 @@ const { Events, Collection } = require('discord.js');
 const path = require('path');
 const fs = require('fs');
 const characterHandler = require('../handlers/characterHandler');
-const createCharacterFlow = require('../handlers/CreateCharacterFlow');
+const createCharacterFlow = require('../handlers/createCharacterFlow');
 
 // Prefix commands cache
 const prefixCommands = new Collection();
@@ -45,9 +45,21 @@ module.exports = {
             const args = message.content.slice(prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
 
-            // Handle create command specially
+            // Handle create command specifically
             if (commandName === 'create') {
-                return await createCharacterFlow(message, characterHandler, false);
+                try {
+                    // Check for existing character first
+                    const existingChar = await characterHandler.getCharacter(message.author.id);
+                    if (existingChar) {
+                        return message.channel.send('❌ You already have a character!');
+                    }
+                    
+                    // If no character, proceed with character creation
+                    return await createCharacterFlow(message, characterHandler, true);
+                } catch (error) {
+                    console.error('Error checking for existing character:', error);
+                    return message.channel.send('❌ An error occurred while checking your character status.');
+                }
             }
 
             // Skip if no commands loaded

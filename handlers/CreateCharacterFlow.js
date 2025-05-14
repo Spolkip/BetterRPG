@@ -19,13 +19,13 @@ async function createCharacterFlow(ctx, handler, isTextCommand = false) {
         // 1. Verify database connection
         if (!await handler.checkDatabaseConnection()) {
             console.error('Database connection failed');
-            return reply('⚠️ Database connection failed. Please contact admin.');
+            return reply({content: '⚠️ Database connection failed. Please contact admin.'});
         }
 
         // 2. Check for existing character
         const existingChar = await handler.getCharacter(user.id);
         if (existingChar) {
-            return reply('❌ You already have a character!');
+            return reply({content: '❌ You already have a character!'});
         }
 
         // 3. Load creation options with validation
@@ -45,7 +45,7 @@ async function createCharacterFlow(ctx, handler, isTextCommand = false) {
             }
         } catch (error) {
             console.error('Failed to load creation options:', error);
-            return reply('⚠️ Failed to load character creation options. Please try again later.');
+            return reply({content: '⚠️ Failed to load character creation options. Please try again later.'});
         }
 
         // Create initial canvas background for the embed
@@ -74,18 +74,29 @@ async function createCharacterFlow(ctx, handler, isTextCommand = false) {
             ctx.fillStyle = gradient;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
-            // Add decorative elements
+            // Add decorative elements - small stars instead of circles
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
             ctx.lineWidth = 2;
             for (let i = 0; i < 20; i++) {
+                const x = Math.random() * canvas.width;
+                const y = Math.random() * canvas.height;
+                const size = Math.random() * 3 + 1;
+                
+                // Draw a small star instead of a circle
                 ctx.beginPath();
-                ctx.arc(
-                    Math.random() * canvas.width,
-                    Math.random() * canvas.height,
-                    Math.random() * 5 + 1,
-                    0,
-                    Math.PI * 2
-                );
+                for (let j = 0; j < 5; j++) {
+                    const angle = (j * 2 * Math.PI / 5) - Math.PI / 2;
+                    const length = j % 2 === 0 ? size * 2 : size;
+                    const pointX = x + length * Math.cos(angle);
+                    const pointY = y + length * Math.sin(angle);
+                    
+                    if (j === 0) {
+                        ctx.moveTo(pointX, pointY);
+                    } else {
+                        ctx.lineTo(pointX, pointY);
+                    }
+                }
+                ctx.closePath();
                 ctx.stroke();
             }
             
@@ -279,46 +290,90 @@ async function createCharacterFlow(ctx, handler, isTextCommand = false) {
                     cardCtx.lineWidth = 10;
                     cardCtx.strokeRect(10, 10, cardCanvas.width-20, cardCanvas.height-20);
                     
-                    // Add character avatar placeholder
+                    // Add character avatar placeholder - use a more appealing design
                     cardCtx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+                    
+                    // Create a hexagon shape instead of circle
+                    const centerX = 150;
+                    const centerY = 200;
+                    const size = 75;
+                    
                     cardCtx.beginPath();
-                    cardCtx.arc(150, 250, 80, 0, Math.PI * 2);
+                    for (let i = 0; i < 6; i++) {
+                        const angle = (i * 2 * Math.PI / 6) - Math.PI / 2;
+                        const x = centerX + size * Math.cos(angle);
+                        const y = centerY + size * Math.sin(angle);
+                        
+                        if (i === 0) {
+                            cardCtx.moveTo(x, y);
+                        } else {
+                            cardCtx.lineTo(x, y);
+                        }
+                    }
+                    cardCtx.closePath();
                     cardCtx.fill();
-                    cardCtx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                    
+                    cardCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
                     cardCtx.lineWidth = 3;
+                    cardCtx.stroke();
+                    
+                    // Add a decorative symbol inside the avatar area
+                    cardCtx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                    cardCtx.lineWidth = 2;
+                    
+                    // Draw a simple character silhouette
+                    cardCtx.beginPath();
+                    cardCtx.arc(centerX, centerY - 25, 20, 0, Math.PI * 2); // Head
+                    cardCtx.moveTo(centerX, centerY - 5);
+                    cardCtx.lineTo(centerX, centerY + 35); // Body
+                    cardCtx.moveTo(centerX - 25, centerY + 10);
+                    cardCtx.lineTo(centerX + 25, centerY + 10); // Arms
                     cardCtx.stroke();
                     
                     // Add character info
                     cardCtx.fillStyle = '#ffffff';
                     cardCtx.font = 'bold 40px "Arial"';
-                    cardCtx.fillText(character.name, 50, 60);
+                    cardCtx.fillText(character.name, 300, 60);
                     
                     cardCtx.font = '24px "Arial"';
-                    cardCtx.fillText(`${raceData.name} ${classData.name}`, 50, 100);
+                    cardCtx.fillText(`${raceData.name} ${classData.name}`, 300, 100);
                     
                     // Add stats
                     cardCtx.font = '20px "Arial"';
-                    cardCtx.fillText(`Level: 1`, 50, 140);
-                    cardCtx.fillText(`Gender: ${character.gender}`, 50, 170);
+                    cardCtx.fillText(`Level: 1`, 300, 140);
+                    cardCtx.fillText(`Gender: ${character.gender}`, 300, 170);
                     
-                    // Add stats table
+                    // Add stats table with all the character stats
                     const stats = [
                         `STR: ${character.strength}`,
                         `INT: ${character.intelligence}`,
                         `DEX: ${character.dexterity}`,
                         `CON: ${character.constitution}`,
+                        `VIT: ${character.vitality || 0}`,
+                        `WIS: ${character.wisdom || 0}`,
+                        `AGI: ${character.agility || 0}`,
+                        `DUR: ${character.durability || 0}`,
+                        `CHA: ${character.charisma || 0}`,
                         `HP: ${character.health}/${character.max_health}`,
                         `MP: ${character.mana}/${character.max_mana}`
                     ];
                     
+                    // Display stats in a neat grid - 3 columns
+                    const colWidth = 180;
+                    const rowHeight = 30;
+                    const startX = 300;
+                    const startY = 210;
+                    
                     stats.forEach((stat, i) => {
-                        cardCtx.fillText(stat, 50 + (i % 2) * 200, 220 + Math.floor(i/2) * 30);
+                        const col = i % 3;
+                        const row = Math.floor(i / 3);
+                        cardCtx.fillText(stat, startX + (col * colWidth), startY + (row * rowHeight));
                     });
                     
                     // Add class/race emoji if available
                     if (classData.emoji || raceData.emoji) {
                         cardCtx.font = '30px "Arial"';
-                        cardCtx.fillText(`${raceData.emoji || ''} ${classData.emoji || ''}`, cardCanvas.width - 100, 80);
+                        cardCtx.fillText(`${raceData.emoji || ''} ${classData.emoji || ''}`, 650, 60);
                     }
                     
                     const characterCard = new AttachmentBuilder(cardCanvas.toBuffer(), { name: 'character-card.png' });
