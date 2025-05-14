@@ -1,6 +1,6 @@
 // commands/createcharacter.js
 const { SlashCommandBuilder } = require('discord.js');
-const createCharacterFlow = require('../utils/createCharacterFlow');
+const createCharacterFlow = require('../../handlers/createCharacterFlow');
 
 module.exports = {
     // Slash command data
