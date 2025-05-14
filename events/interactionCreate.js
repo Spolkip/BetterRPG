@@ -1,7 +1,7 @@
 // events/interactionCreate.js
 const { Events } = require('discord.js');
 const characterHandler = require('../handlers/characterHandler');
-const createCharacterFlow = require('../handlers/CreateCharacterFlow'); // Make sure this import is here!
+const createCharacterFlow = require('../handlers/createCharacterFlow'); // Make sure this import is here!
 
 module.exports = {
     name: Events.InteractionCreate,
@@ -14,21 +14,22 @@ module.exports = {
             
             // Handle missing commands
             if (!command) {
+                console.error(`Command not found: ${interaction.commandName}`);
                 return interaction.reply({ 
                     content: '❌ This command is no longer available.', 
                     ephemeral: true 
                 });
             }
             
-            // Special handling for create command
-            if (interaction.commandName === 'create') {
+            // Special handling for create/createc command
+            if (interaction.commandName === 'create' || interaction.commandName === 'createc') {
                 return await createCharacterFlow(interaction, characterHandler, false);
             }
             
             // For all other commands, execute normally
-            await command.execute(interaction, client);
+            await command.execute(interaction);
         } catch (error) {
-            console.error('Error in interactionCreate:', error);
+            console.error(`Error in interactionCreate for command ${interaction.commandName}:`, error);
             
             // Handle response based on interaction state
             try {

@@ -142,7 +142,80 @@ class CharacterHandler {
             throw error;
         }
     }
+async upgradeCharacterStat(userId, statName, amount = 1) {
+    try {
+        // Get character first to validate
+        const character = await this.getCharacter(userId);
+        if (!character) {
+            return { success: false, error: 'Character not found' };
+        }
 
+        // Check if character has enough stat points
+        if (character.stat_points < amount) {
+            return { 
+                success: false, 
+                error: `Not enough stat points (have ${character.stat_points}, need ${amount})`
+            };
+        }
+
+        // Validate stat name
+        const validStats = [
+            'strength', 'intelligence', 'dexterity', 'constitution',
+            'vitality', 'wisdom', 'agility', 'durability', 'charisma'
+        ];
+
+        if (!validStats.includes(statName)) {
+            return { success: false, error: `Invalid stat name: ${statName}` };
+        }
+
+        // Store the old value for the response
+        const oldValue = character[statName];
+
+        // Update the stats in the database using a transaction
+        await this.executeQuery(`
+            UPDATE characters 
+            SET 
+                ${statName} = ${statName} + ?,
+                stat_points = stat_points - ?
+            WHERE user_id = ?
+        `, [amount, amount, userId]);
+
+        // Also update derived statistics based on the stat that was improved
+        if (['vitality', 'constitution'].includes(statName)) {
+            // Update max health if vitality or constitution was increased
+            const healthIncrease = statName === 'vitality' ? amount * 5 : amount * 2;
+            await this.executeQuery(`
+                UPDATE characters
+                SET 
+                    max_health = max_health + ?,
+                    health = health + ?
+                WHERE user_id = ?
+            `, [healthIncrease, healthIncrease, userId]);
+        }
+
+        if (['intelligence', 'wisdom'].includes(statName)) {
+            // Update max mana if intelligence or wisdom was increased
+            const manaIncrease = statName === 'intelligence' ? amount * 3 : amount * 2;
+            await this.executeQuery(`
+                UPDATE characters
+                SET 
+                    max_mana = max_mana + ?,
+                    mana = mana + ?
+                WHERE user_id = ?
+            `, [manaIncrease, manaIncrease, userId]);
+        }
+
+        return { 
+            success: true, 
+            oldValue: oldValue,
+            newValue: oldValue + amount,
+            remainingPoints: character.stat_points - amount
+        };
+    } catch (error) {
+        console.error('Error upgrading character stat:', error);
+        return { success: false, error: 'Database error occurred' };
+    }
+}
     async checkDatabaseConnection() {
         try {
             await this.executeQuery('SELECT 1');
