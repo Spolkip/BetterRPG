@@ -1,0 +1,16 @@
+{
+  "name": "better-rpg",
+  "version": "1.0.0",
+  "description": "A Discord RPG Bot",
+  "main": "main.js",
+  "scripts": {
+    "start": "node main.js"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.70",
+    "canvas": "^3.1.0",
+    "discord.js": "^14.13.0",
+    "dotenv": "^16.5.0",
+    "mysql2": "^3.14.1"
+  }
+}
