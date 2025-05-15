@@ -1,95 +1,67 @@
-// events/messageCreate.js
-const { Events, Collection } = require('discord.js');
-const path = require('path');
-const fs = require('fs');
-const characterHandler = require('../handlers/characterHandler');
-
-// Prefix commands cache
-const prefixCommands = new Collection();
-
-// Try to load prefix commands with error handling
-function loadPrefixCommands() {
-    try {
-        const commandsPath = path.join(__dirname, '../commands');
-        
-        // Check if directory exists
-        if (fs.existsSync(commandsPath)) {
-            const folders = fs.readdirSync(commandsPath);
-            
-            for (const folder of folders) {
-                const folderPath = path.join(commandsPath, folder);
-                
-                // Skip if not a directory
-                if (!fs.statSync(folderPath).isDirectory()) continue;
-                
-                const commandFiles = fs.readdirSync(folderPath).filter(file => file.endsWith('.js'));
-                
-                for (const file of commandFiles) {
-                    try {
-                        const command = require(path.join(folderPath, file));
-                        // Check if it has prefix command properties
-                        if (command.name && command.executeMessage) {
-                            prefixCommands.set(command.name, command);
-                            
-                            // Also register aliases if available
-                            if (command.aliases && Array.isArray(command.aliases)) {
-                                command.aliases.forEach(alias => {
-                                    prefixCommands.set(alias, command);
-                                });
-                            }
-                        }
-                    } catch (error) {
-                        console.error(`Error loading prefix command ${file}:`, error);
-                    }
-                }
-            }
-            
-            console.log(`Loaded ${prefixCommands.size} prefix commands/aliases`);
-        } else {
-            console.warn('Commands directory not found - prefix commands will be disabled');
-        }
-    } catch (error) {
-        console.error('Error initializing prefix commands:', error);
-    }
-}
-
-// Load commands when this module is required
-loadPrefixCommands();
+const { Events } = require('discord.js');
+const createCharacterFlow = require('../handlers/CreateCharacterFlow');
 
 module.exports = {
     name: Events.MessageCreate,
     async execute(message, client) {
+        if (message.author.bot || !message.content.startsWith('rpg ')) return;
+
         try {
-            if (message.author.bot) return;
-
-            const prefix = 'rpg ';
-            if (!message.content.startsWith(prefix)) return;
-
-            const args = message.content.slice(prefix.length).trim().split(/ +/);
+            const args = message.content.slice('rpg '.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
 
-            // Handle create command specially
-            if (commandName === 'create') {
-                return await createCharacterFlow(message, characterHandler, true);
+            // Handle create command
+            if (['create', 'cc', 'createchar'].includes(commandName)) {
+                return await createCharacterFlow(message, client.handler, true);
             }
 
-            // Skip if no commands loaded
-            if (prefixCommands.size === 0) {
-                return message.reply('⚠️ Prefix commands are currently unavailable.');
+            const command = client.commands.get(commandName) || 
+                          client.commands.find(cmd => cmd.aliases?.includes(commandName));
+
+            if (!command) return;
+
+            // Create a proper mock interaction for prefix commands
+            const mockInteraction = {
+                user: message.author,
+                channel: message.channel,
+                guild: message.guild,
+                member: message.member,
+                replied: false,
+                deferred: false,
+                reply: async (content) => {
+                    this.replied = true;
+                    return message.channel.send(content);
+                },
+                editReply: async (content) => {
+                    return message.channel.send(content);
+                },
+                deferReply: async () => {
+                    this.deferred = true;
+                    return Promise.resolve();
+                },
+                options: {
+                    getString: (name) => args[0],
+                    getInteger: (name) => {
+                        if (args[1] && !isNaN(args[1])) {
+                            return parseInt(args[1]);
+                        }
+                        return null;
+                    },
+                    getSubcommand: () => args[0] || 'list'
+                }
+            };
+
+            if (command.executeMessage) {
+                await command.executeMessage(message, args, client.handler);
+            } else if (command.execute) {
+                await command.execute(mockInteraction);
+            } else {
+                message.reply('This command is not properly configured.');
             }
-
-            // Find the command
-            const command = prefixCommands.get(commandName);
-
-            if (!command) {
-                return message.reply(`❌ Unknown command. Use \`${prefix}help\` for available commands.`);
-            }
-
-            // Pass handler to command
-            await command.executeMessage(message, args, characterHandler);
+            
         } catch (error) {
             console.error('Error in messageCreate:', error);
-            await message.channel.send('❌ An error occurred while executing that command.');
+            message.reply('❌ An error occurred while executing that command.').catch(console.error);
         }
     }
 };

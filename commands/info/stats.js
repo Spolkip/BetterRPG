@@ -1,4 +1,3 @@
-// commands/stats/stats.js
 const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } = require('discord.js');
 const { createCanvas } = require('canvas');
 
@@ -12,13 +11,11 @@ module.exports = {
     // Slash command handler
     async execute(interaction) {
         try {
-            // Defer reply to prevent timeout
             await interaction.deferReply({ ephemeral: false });
             
             const handler = interaction.client.handler;
             const userId = interaction.user.id;
             
-            // Get character data
             const character = await handler.getCharacter(userId);
             
             if (!character) {
@@ -30,7 +27,6 @@ module.exports = {
             
         } catch (error) {
             console.error('Error in stats command:', error);
-            // Already deferred, so use editReply
             return interaction.editReply('❌ An error occurred while fetching your stats.');
         }
     },
@@ -38,7 +34,7 @@ module.exports = {
     // Prefix command properties
     name: 'stats',
     description: 'Display your character stats',
-    aliases: ['stat', 'profile', 'char'],
+    aliases: ['stat'],
     usage: '',
     
     // Prefix command handler
@@ -46,7 +42,6 @@ module.exports = {
         try {
             const userId = message.author.id;
             
-            // Get character data
             const character = await handler.getCharacter(userId);
             
             if (!character) {
@@ -63,9 +58,8 @@ module.exports = {
     }
 };
 
-// Helper function to create visual stats card
 async function createStatsCard(character) {
-    // Calculate some additional derived stats
+    // Calculate derived stats
     const critChance = Math.min(5 + (character.dexterity * 0.2), 25).toFixed(1);
     const dodgeChance = Math.min(3 + (character.agility * 0.15), 20).toFixed(1);
     const physicalDefense = Math.floor(5 + (character.constitution * 0.5) + (character.durability * 0.8));
@@ -73,63 +67,25 @@ async function createStatsCard(character) {
     const attackPower = Math.floor(10 + (character.strength * 1.2) + (character.dexterity * 0.3));
     const spellPower = Math.floor(10 + (character.intelligence * 1.2) + (character.wisdom * 0.5));
     
-    // Calculate leveling progress
-    const nextLevelXP = 100 + (character.level * 50); // Same formula as in characterHandler
-    const progressPercent = (character.xp / nextLevelXP * 100).toFixed(1);
-    
     // Create canvas
-    const canvas = createCanvas(800, 500);
+    const canvas = createCanvas(600, 400);
     const ctx = canvas.getContext('2d');
     
-    // Background gradient based on class theme
-    const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-    gradient.addColorStop(0, '#1e3c72');
-    gradient.addColorStop(1, '#2a5298');
-    ctx.fillStyle = gradient;
+    // Background
+    ctx.fillStyle = '#1a1a1a';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // Add decorative border
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-    ctx.lineWidth = 8;
+    // Add border
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 4;
     ctx.strokeRect(10, 10, canvas.width-20, canvas.height-20);
-    
-    // Add character header
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 40px Arial';
-    ctx.fillText(`${character.name}`, 30, 60);
-    
-    ctx.font = '24px Arial';
-    ctx.fillText(`Level ${character.level} ${character.race_name} ${character.class_name}`, 30, 95);
-    
-    // Draw XP bar
-    const xpBarWidth = 300;
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-    ctx.fillRect(350, 65, xpBarWidth, 20);
-    
-    ctx.fillStyle = '#00ff9d';
-    const fillWidth = Math.min((character.xp / nextLevelXP) * xpBarWidth, xpBarWidth);
-    ctx.fillRect(350, 65, fillWidth, 20);
-    
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '14px Arial';
-    ctx.fillText(`XP: ${character.xp}/${nextLevelXP} (${progressPercent}%)`, 350, 100);
-    
-    // Draw health and mana bars
-    drawResourceBar(ctx, 30, 120, 350, 25, character.health, character.max_health, '#ff5757', 'HP');
-    drawResourceBar(ctx, 30, 160, 350, 25, character.mana, character.max_mana, '#5799ff', 'MP');
-    
-    // Add race/class emoji if available
-    if (character.class_emoji || character.race_emoji) {
-        ctx.font = '40px Arial';
-        ctx.fillText(`${character.race_emoji || ''} ${character.class_emoji || ''}`, 700, 60);
-    }
     
     // Create stat sections
     const statSections = [
         {
             title: 'PRIMARY STATS',
             x: 30,
-            y: 220,
+            y: 40,
             stats: [
                 { name: 'Strength', value: character.strength },
                 { name: 'Intelligence', value: character.intelligence },
@@ -144,8 +100,8 @@ async function createStatsCard(character) {
         },
         {
             title: 'COMBAT STATS',
-            x: 400,
-            y: 220,
+            x: 300,
+            y: 40,
             stats: [
                 { name: 'Attack Power', value: attackPower },
                 { name: 'Spell Power', value: spellPower },
@@ -161,75 +117,63 @@ async function createStatsCard(character) {
     statSections.forEach(section => {
         // Section title
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 20px Arial';
+        ctx.font = 'bold 18px Arial';
         ctx.fillText(section.title, section.x, section.y);
         
         // Draw horizontal line under title
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(section.x, section.y + 10);
-        ctx.lineTo(section.x + 300, section.y + 10);
+        ctx.moveTo(section.x, section.y + 8);
+        ctx.lineTo(section.x + 250, section.y + 8);
         ctx.stroke();
         
         // Draw stats
-        ctx.font = '18px Arial';
+        ctx.font = '16px Arial';
         section.stats.forEach((stat, index) => {
-            const yPos = section.y + 40 + (index * 30);
+            const yPos = section.y + 35 + (index * 25);
             
             // Stat name
             ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
             ctx.fillText(stat.name, section.x, yPos);
             
-            // Stat value with pill background
+            // Stat value with background
             const valueText = String(stat.value);
-            const valueWidth = ctx.measureText(valueText).width + 20;
+            const valueWidth = ctx.measureText(valueText).width + 15;
             
-            // Draw pill background
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-            roundRect(ctx, section.x + 130, yPos - 18, valueWidth, 24, 12, true);
+            // Draw background
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+            roundRect(ctx, section.x + 120, yPos - 15, valueWidth, 20, 5, true);
             
             // Draw stat value
             ctx.fillStyle = '#ffffff';
-            ctx.fillText(valueText, section.x + 140, yPos);
+            ctx.fillText(valueText, section.x + 125, yPos);
         });
     });
     
-    // Add stat points notification if any
+    // Add available points at the bottom
     if (character.stat_points > 0) {
-        ctx.fillStyle = '#ffcc00';
-        ctx.font = 'bold 18px Arial';
-        ctx.fillText(`🎯 You have ${character.stat_points} stat points to spend!`, 30, 480);
+        ctx.fillStyle = 'rgba(100, 255, 100, 0.2)';
+        roundRect(ctx, 20, 350, 560, 30, 5, true);
+        
+        ctx.fillStyle = '#66ff66';
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Available Stat Points: ${character.stat_points}`, canvas.width/2, 372);
+        ctx.textAlign = 'left';
     }
     
     // Create the embed and attachment
-    const attachment = new AttachmentBuilder(canvas.toBuffer(), { name: 'stats-card.png' });
+    const attachment = new AttachmentBuilder(canvas.toBuffer(), { name: 'stats.png' });
     
     const embed = new EmbedBuilder()
-        .setTitle(`${character.name}'s Character Stats`)
-        .setDescription(`Level ${character.level} ${character.race_name} ${character.class_emoji || ''} ${character.class_name} ${character.race_emoji || ''}`)
         .setColor('#2a5298')
-        .setImage('attachment://stats-card.png')
-        .setFooter({ text: `Gender: ${character.gender} • XP: ${character.xp}/${nextLevelXP}` });
+        .setImage('attachment://stats.png')
+        .addFields(
+            { name: 'Available Points', value: `${character.stat_points || 0}`, inline: true }
+        );
     
     return { embed, attachment };
-}
-
-// Helper function to draw resource bars (HP/MP)
-function drawResourceBar(ctx, x, y, width, height, current, max, color, label) {
-    // Background
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-    roundRect(ctx, x, y, width, height, 5, true);
-    
-    // Fill based on current/max ratio
-    ctx.fillStyle = color;
-    const fillWidth = Math.min((current / max) * width, width);
-    roundRect(ctx, x, y, fillWidth, height, 5, true);
-    
-    // Text
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 16px Arial';
-    ctx.fillText(`${label}: ${current}/${max}`, x + 10, y + height - 7);
 }
 
 // Helper function to draw rounded rectangles

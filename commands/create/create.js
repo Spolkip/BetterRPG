@@ -1,27 +1,38 @@
 // commands/createcharacter.js
 const { SlashCommandBuilder } = require('discord.js');
-const createCharacterFlow = require('../../handlers/createCharacterFlow');
+const createCharacterFlow = require('../../handlers/CreateCharacterFlow');
 
 module.exports = {
-    // Slash command data
     data: new SlashCommandBuilder()
-        .setName('createc')
+        .setName('create')
         .setDescription('Create your RPG character')
         .setDMPermission(false),
     
-    // Slash command handler
     async execute(interaction) {
-        await createCharacterFlow(interaction, interaction.client.handler, false);
+        try {
+            await createCharacterFlow(interaction, interaction.client.handler, false);
+        } catch (error) {
+            console.error('Error in createcharacter command:', error);
+            if (!interaction.replied) {
+                await interaction.reply({
+                    content: '❌ An error occurred while creating your character.',
+                    ephemeral: true
+                });
+            }
+        }
     },
     
-    // Prefix command properties
     name: 'createcharacter',
     description: 'Create a new RPG character',
-    aliases: ['cc', 'createchar,create'],
+    aliases: ['cc', 'createchar', 'create'],
     usage: '',
     
-    // Prefix command handler
     async executeMessage(message, args, handler) {
-        await createCharacterFlow(message, handler, true);
+        try {
+            await createCharacterFlow(message, handler, true);
+        } catch (error) {
+            console.error('Error in prefix create command:', error);
+            await message.reply('❌ An error occurred while creating your character.');
+        }
     }
 };

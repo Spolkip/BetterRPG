@@ -1,15 +1,15 @@
 const db = require('../database/db');
+this.skillHandler = require('./abilities');
 
 class CharacterHandler {
     constructor() {
         this.xpConfig = {
             baseXP: 100,
             xpPerLevel: 50,
-            statPointsPerLevel: 5
+            statPointsPerLevel: 3 
         };
     }
 
-    // Unified database method (renamed from dbQuery to executeQuery for consistency)
     async executeQuery(sql, params = []) {
         try {
             // Use execute for SELECT queries with parameters, query for others
@@ -22,6 +22,13 @@ class CharacterHandler {
         }
     }
 
+    async useCharacterSkill(userId, skillId, target = null) {
+        const character = await this.getCharacter(userId);
+        if (!character) return { success: false, message: "Character not found" };
+        
+        return this.skillHandler.useSkill(character.id, skillId, target);
+    }
+    
     async getCharacter(userId) {
         try {
             const characters = await this.executeQuery(`
@@ -121,19 +128,19 @@ class CharacterHandler {
             const maxHealth = 100 + (stats.vitality * 5) + (stats.constitution * 2);
             const maxMana = 50 + (stats.intelligence * 3) + (stats.wisdom * 2);
 
-            // Insert character
+            // Insert character - initial stat_points value remains 5
             await this.executeQuery(`
                 INSERT INTO characters (
                     user_id, name, gender, race_id, class_id,
                     strength, agility, intelligence, vitality,
                     durability, charisma, dexterity, constitution, wisdom,
-                    health, max_health, mana, max_mana, stat_points
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    health, max_health, mana, max_mana, stat_points, xp, level
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `, [
                 userId, name, gender, raceId, classId,
                 stats.strength, stats.agility, stats.intelligence, stats.vitality,
                 stats.durability, stats.charisma, stats.dexterity, stats.constitution, stats.wisdom,
-                maxHealth, maxHealth, maxMana, maxMana, 0
+                maxHealth, maxHealth, maxMana, maxMana, 5, 0, 1
             ]);
 
             return this.getCharacter(userId);
@@ -142,80 +149,94 @@ class CharacterHandler {
             throw error;
         }
     }
-async upgradeCharacterStat(userId, statName, amount = 1) {
-    try {
-        // Get character first to validate
-        const character = await this.getCharacter(userId);
-        if (!character) {
-            return { success: false, error: 'Character not found' };
+
+    async upgradeCharacterStat(userId, statName, amount = 1) {
+        try {
+            // Get character first to validate
+            const character = await this.getCharacter(userId);
+            if (!character) {
+                return { success: false, error: 'Character not found' };
+            }
+
+            // Check if character has enough stat points
+            if (character.stat_points < amount) {
+                return { 
+                    success: false, 
+                    error: `Not enough stat points (have ${character.stat_points}, need ${amount})`
+                };
+            }
+
+            // Validate stat name
+            const validStats = [
+                'strength', 'intelligence', 'dexterity', 'constitution',
+                'vitality', 'wisdom', 'agility', 'durability', 'charisma'
+            ];
+
+            if (!validStats.includes(statName)) {
+                return { success: false, error: `Invalid stat name: ${statName}` };
+            }
+
+            // Store the old value for the response
+            const oldValue = character[statName];
+
+            // Start transaction
+            await this.executeQuery('START TRANSACTION');
+
+            try {
+                // Update the stat and deduct points
+                await this.executeQuery(`
+                    UPDATE characters 
+                    SET 
+                        ${statName} = ${statName} + ?,
+                        stat_points = stat_points - ?
+                    WHERE user_id = ?
+                `, [amount, amount, userId]);
+
+                // Also update derived statistics based on the stat that was improved
+                if (['vitality', 'constitution'].includes(statName)) {
+                    // Update max health if vitality or constitution was increased
+                    const healthIncrease = statName === 'vitality' ? amount * 5 : amount * 2;
+                    await this.executeQuery(`
+                        UPDATE characters
+                        SET 
+                            max_health = max_health + ?,
+                            health = health + ?
+                        WHERE user_id = ?
+                    `, [healthIncrease, healthIncrease, userId]);
+                }
+
+                if (['intelligence', 'wisdom'].includes(statName)) {
+                    // Update max mana if intelligence or wisdom was increased
+                    const manaIncrease = statName === 'intelligence' ? amount * 3 : amount * 2;
+                    await this.executeQuery(`
+                        UPDATE characters
+                        SET 
+                            max_mana = max_mana + ?,
+                            mana = mana + ?
+                        WHERE user_id = ?
+                    `, [manaIncrease, manaIncrease, userId]);
+                }
+
+                // Commit transaction
+                await this.executeQuery('COMMIT');
+
+                return { 
+                    success: true, 
+                    oldValue: oldValue,
+                    newValue: oldValue + amount,
+                    remainingPoints: character.stat_points - amount
+                };
+            } catch (error) {
+                // Rollback transaction on error
+                await this.executeQuery('ROLLBACK');
+                throw error;
+            }
+        } catch (error) {
+            console.error('Error upgrading character stat:', error);
+            return { success: false, error: 'Database error occurred' };
         }
-
-        // Check if character has enough stat points
-        if (character.stat_points < amount) {
-            return { 
-                success: false, 
-                error: `Not enough stat points (have ${character.stat_points}, need ${amount})`
-            };
-        }
-
-        // Validate stat name
-        const validStats = [
-            'strength', 'intelligence', 'dexterity', 'constitution',
-            'vitality', 'wisdom', 'agility', 'durability', 'charisma'
-        ];
-
-        if (!validStats.includes(statName)) {
-            return { success: false, error: `Invalid stat name: ${statName}` };
-        }
-
-        // Store the old value for the response
-        const oldValue = character[statName];
-
-        // Update the stats in the database using a transaction
-        await this.executeQuery(`
-            UPDATE characters 
-            SET 
-                ${statName} = ${statName} + ?,
-                stat_points = stat_points - ?
-            WHERE user_id = ?
-        `, [amount, amount, userId]);
-
-        // Also update derived statistics based on the stat that was improved
-        if (['vitality', 'constitution'].includes(statName)) {
-            // Update max health if vitality or constitution was increased
-            const healthIncrease = statName === 'vitality' ? amount * 5 : amount * 2;
-            await this.executeQuery(`
-                UPDATE characters
-                SET 
-                    max_health = max_health + ?,
-                    health = health + ?
-                WHERE user_id = ?
-            `, [healthIncrease, healthIncrease, userId]);
-        }
-
-        if (['intelligence', 'wisdom'].includes(statName)) {
-            // Update max mana if intelligence or wisdom was increased
-            const manaIncrease = statName === 'intelligence' ? amount * 3 : amount * 2;
-            await this.executeQuery(`
-                UPDATE characters
-                SET 
-                    max_mana = max_mana + ?,
-                    mana = mana + ?
-                WHERE user_id = ?
-            `, [manaIncrease, manaIncrease, userId]);
-        }
-
-        return { 
-            success: true, 
-            oldValue: oldValue,
-            newValue: oldValue + amount,
-            remainingPoints: character.stat_points - amount
-        };
-    } catch (error) {
-        console.error('Error upgrading character stat:', error);
-        return { success: false, error: 'Database error occurred' };
     }
-}
+
     async checkDatabaseConnection() {
         try {
             await this.executeQuery('SELECT 1');
@@ -241,25 +262,97 @@ async upgradeCharacterStat(userId, statName, amount = 1) {
         let level = character.level;
         let statPoints = character.stat_points || 0;
         let leveledUp = false;
+        let levelsGained = 0;
 
+        // Check if gaining levels
         while (xp >= this.xpToNextLevel(level)) {
             xp -= this.xpToNextLevel(level);
             level++;
-            statPoints += this.xpConfig.statPointsPerLevel;
+            statPoints += this.xpConfig.statPointsPerLevel; // Now gives 3 points per level
             leveledUp = true;
+            levelsGained++;
         }
 
-        await this.executeQuery(
-            'UPDATE characters SET xp = ?, level = ?, stat_points = ? WHERE user_id = ?',
-            [xp, level, statPoints, userId]
-        );
+        // Begin transaction for atomicity
+        await this.executeQuery('START TRANSACTION');
 
-        return {
-            leveledUp,
-            newLevel: level,
-            remainingXP: xp,
-            statPoints
-        };
+        try {
+            // Update all relevant fields
+            await this.executeQuery(
+                'UPDATE characters SET xp = ?, level = ?, stat_points = ?, health = max_health WHERE user_id = ?',
+                [xp, level, statPoints, userId]
+            );
+
+            // Commit changes
+            await this.executeQuery('COMMIT');
+
+            return {
+                leveledUp,
+                levelsGained,
+                newLevel: level,
+                remainingXP: xp,
+                statPoints,
+                pointsGained: leveledUp ? levelsGained * this.xpConfig.statPointsPerLevel : 0
+            };
+        } catch (error) {
+            // Rollback on error
+            await this.executeQuery('ROLLBACK');
+            console.error('Error adding XP:', error);
+            return { error: 'Database error occurred' };
+        }
+    }
+
+    // Method to add stat points directly (for admin or special events)
+    async addStatPoints(userId, amount) {
+        try {
+            const character = await this.getCharacter(userId);
+            if (!character) {
+                return { success: false, error: 'Character not found' };
+            }
+
+            // Update stat points
+            await this.executeQuery(
+                'UPDATE characters SET stat_points = stat_points + ? WHERE user_id = ?',
+                [amount, userId]
+            );
+
+            return {
+                success: true,
+                oldValue: character.stat_points,
+                newValue: character.stat_points + amount
+            };
+        } catch (error) {
+            console.error('Error adding stat points:', error);
+            return { success: false, error: 'Database error occurred' };
+        }
+    }
+
+    // New method to update health after battle
+    async updateHealth(userId, newHealth) {
+        try {
+            await this.executeQuery(
+                'UPDATE characters SET health = ? WHERE user_id = ?',
+                [newHealth, userId]
+            );
+            return true;
+        } catch (error) {
+            console.error('Error updating health:', error);
+            return false;
+        }
+    }
+
+    // New method to fully heal character
+    async fullHeal(userId) {
+        try {
+            await this.executeQuery(
+                'UPDATE characters SET health = max_health WHERE user_id = ?',
+                [userId]
+            );
+            return true;
+        } catch (error) {
+            console.error('Error healing character:', error);
+            return false;
+        }
     }
 }
 
