@@ -26,7 +26,21 @@ module.exports = {
     description: 'Create a new RPG character',
     aliases: ['cc', 'createchar', 'create'],
     usage: '',
+    async validateCharacterCreation(userId) {
+    // Check if already has character
+    const existing = await CharacterHandler.getCharacter(userId);
+    if (existing) {
+        return { valid: false, message: 'You already have a character!' };
+    }
     
+    // Check database connection
+    const isConnected = await db.testConnection();
+    if (!isConnected) {
+        return { valid: false, message: 'Database connection failed' };
+    }
+    
+    return { valid: true };
+},
     async executeMessage(message, args, handler) {
         try {
             await createCharacterFlow(message, handler, true);
@@ -35,4 +49,6 @@ module.exports = {
             await message.reply('❌ An error occurred while creating your character.');
         }
     }
+    
+    
 };

@@ -56,6 +56,11 @@ class Database {
             throw err;
         }
     }
+
+    // Expose getConnection directly from the pool
+    async getConnection() {
+        return await this.pool.getConnection();
+    }
 }
 
 module.exports = new Database();

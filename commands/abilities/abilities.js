@@ -2,7 +2,6 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const skillHandler = require('../../handlers/abilities');
 const CharacterHandler = require('../../handlers/characterHandler');
 
-// Command metadata
 const commandData = {
     name: 'skills',
     description: 'Manage your character skills',
@@ -11,7 +10,6 @@ const commandData = {
 };
 
 class SkillsCommand {
-    // Format skill details consistently
     static _formatSkillDetails(skill) {
         return `**Type:** ${skill.is_passive ? 'Passive' : 'Active'} | ` +
                `**Cost:** ${skill.mana_cost} MP | ` +
@@ -19,7 +17,6 @@ class SkillsCommand {
                (skill.skill_level ? ` | **Level:** ${skill.skill_level}` : '');
     }
 
-    // Build skills embed
     static _buildSkillsEmbed(title, skills, learnedSkillIds) {
         const embed = new EmbedBuilder()
             .setTitle(title)
@@ -43,7 +40,6 @@ class SkillsCommand {
         return embed;
     }
 
-    // Handle listing skills
     static async _handleListSkills(context, character) {
         try {
             if (!character?.class_id) {
@@ -52,7 +48,7 @@ class SkillsCommand {
 
             const [availableSkills, learnedSkills] = await Promise.all([
                 skillHandler.getSkillsForClass(character.class_id),
-                skillHandler.getCharacterSkills(character.id).catch(() => []) // Graceful fallback
+                skillHandler.getCharacterSkills(character.id).catch(() => [])
             ]);
 
             const learnedSkillIds = new Set(learnedSkills.map(s => s.id));
@@ -73,35 +69,32 @@ class SkillsCommand {
         }
     }
 
-    // Handle learning skill
-    static async _handleLearnSkill(context, character, skillId) {
-        try {
-            if (!skillId || isNaN(skillId)) {
-                return context.reply('❌ Please provide a valid skill ID! Example: `rpg skills learn 301`');
-            }
-
-            const result = await skillHandler.learnSkill(character.id, skillId);
-            
-            return context.reply(
-                result.success 
-                    ? `🎉 Successfully learned: **${result.skillName}** (ID: ${skillId})`
-                    : `❌ ${result.message}`
-            );
-        } catch (error) {
-            console.error('Failed to learn skill:', error);
-            return context.reply('❌ An error occurred while learning the skill.');
+static async _handleLearnSkill(context, character, skillId) {
+    try {
+        if (!skillId || isNaN(skillId)) {
+            return context.reply('❌ Please provide a valid skill ID! Example: `rpg skills learn 301`');
         }
-    }
 
-    // Handle showing learned skills
+        const result = await skillHandler.learnSkill(character.id, skillId);
+        
+        // Ensure result exists and has success property
+        if (result && typeof result.success !== 'undefined') {
+            if (result.success) {
+                return context.reply(`🎉 Successfully learned: **${result.skillName}** (ID: ${skillId})`);
+            }
+            return context.reply(`❌ ${result.message || 'Failed to learn skill'}`);
+        }
+
+        // Fallback error if result format is unexpected
+        return context.reply('❌ An unexpected error occurred while learning the skill.');
+    } catch (error) {
+        console.error('Failed to learn skill:', error);
+        return context.reply('❌ An error occurred while learning the skill.');
+    }
+}
+
     static async _handleMySkills(context, character) {
         try {
-            // First verify character exists
-            const characterExists = await CharacterHandler.verifyCharacter(character.id);
-            if (!characterExists) {
-                throw new Error('Character not found in database');
-            }
-
             const skills = await skillHandler.getCharacterSkills(character.id);
             
             if (!skills.length) {
@@ -131,7 +124,6 @@ class SkillsCommand {
         }
     }
 
-    // Main command handler
     static async handleCommand(context) {
         try {
             const character = await CharacterHandler.getCharacter(context.user.id);
@@ -154,31 +146,34 @@ class SkillsCommand {
         }
     }
 
-    // Build slash command
     static buildSlashCommand() {
-        return new SlashCommandBuilder()
+        const command = new SlashCommandBuilder()
             .setName(commandData.name)
-            .setDescription(commandData.description)
-            .addSubcommand(sub => 
-                sub.setName('list')
-                   .setDescription('List available skills for your class')
-            )
-            .addSubcommand(sub =>
-                sub.setName('learn')
-                   .setDescription('Learn a new skill')
-                   .addIntegerOption(opt =>
-                       opt.setName('skill_id')
-                          .setDescription('ID of the skill to learn')
-                          .setRequired(true)
-                   )
-            )
-            .addSubcommand(sub =>
-                sub.setName('my-skills')
-                   .setDescription('View your learned skills')
-            );
+            .setDescription(commandData.description);
+
+        command.addSubcommand(sub => 
+            sub.setName('list')
+               .setDescription('List available skills for your class')
+        );
+
+        command.addSubcommand(sub =>
+            sub.setName('learn')
+               .setDescription('Learn a new skill')
+               .addIntegerOption(opt =>
+                   opt.setName('skill_id')
+                      .setDescription('ID of the skill to learn')
+                      .setRequired(true)
+               )
+        );
+
+        command.addSubcommand(sub =>
+            sub.setName('my-skills')
+               .setDescription('View your learned skills')
+        );
+
+        return command;
     }
 
-    // Handle prefix command
     static async handlePrefixCommand(message, args) {
         const subcommand = args[0]?.toLowerCase() || 'list';
         const skillId = args[1] ? parseInt(args[1]) : null;
@@ -200,7 +195,6 @@ class SkillsCommand {
     }
 }
 
-// Export for both slash and prefix commands
 module.exports = {
     ...commandData,
     data: SkillsCommand.buildSlashCommand(),

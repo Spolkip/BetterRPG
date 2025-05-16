@@ -47,6 +47,18 @@ class CharacterHandler {
         }
     }
 
+        async verifyCharacter(characterId) {
+        try {
+            const [rows] = await db.query(
+                'SELECT id, class_id, level FROM characters WHERE id = ? LIMIT 1',
+                [characterId]
+            );
+            return rows[0] || null;
+        } catch (error) {
+            console.error('Failed to verify character:', error);
+            return null;
+        }
+    }
     async getClasses() {
         try {
             const classes = await this.executeQuery('SELECT * FROM classes');

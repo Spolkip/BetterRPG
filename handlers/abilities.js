@@ -2,7 +2,6 @@ const db = require('../database/db');
 
 class SkillHandler {
     constructor() {
-        // Fallback skill data if database fails
         this.fallbackSkills = {
             warrior: [
                 {
@@ -50,11 +49,6 @@ class SkillHandler {
         };
     }
 
-    /**
-     * Verify character exists and return basic data
-     * @param {number} characterId 
-     * @returns {Promise<object|null>}
-     */
     async verifyCharacter(characterId) {
         try {
             const [rows] = await db.query(
@@ -68,11 +62,6 @@ class SkillHandler {
         }
     }
 
-    /**
-     * Get all skills available for a class
-     * @param {string} classId 
-     * @returns {Promise<Array>}
-     */
     async getSkillsForClass(classId) {
         try {
             const [skills] = await db.query(
@@ -90,11 +79,6 @@ class SkillHandler {
         }
     }
 
-    /**
-     * Get skills learned by a character
-     * @param {number} characterId 
-     * @returns {Promise<Array>}
-     */
     async getCharacterSkills(characterId) {
         const character = await this.verifyCharacter(characterId);
         if (!character) {
@@ -126,128 +110,135 @@ class SkillHandler {
         }
     }
 
-    /**
-     * Learn a new skill
-     * @param {number} characterId 
-     * @param {number} skillId 
-     * @returns {Promise<object>}
-     */
-    async learnSkill(characterId, skillId) {
-        try {
-            await db.query('START TRANSACTION');
+async learnSkill(characterId, skillId) {
+    let connection;
+    try {
+        connection = await db.getConnection();
+        await connection.beginTransaction();
 
-            // Validate inputs
-            characterId = parseInt(characterId);
-            skillId = parseInt(skillId);
-            
-            if (isNaN(characterId) || isNaN(skillId)) {
-                throw new Error("Invalid character or skill ID");
-            }
-
-            // Get character with lock
-            const [charRows] = await db.query(
-                'SELECT * FROM characters WHERE id = ? LIMIT 1 FOR UPDATE',
-                [characterId]
-            );
-            
-            if (!charRows?.length) {
-                throw new Error("Character not found");
-            }
-            
-            const character = charRows[0];
-            
-            // Get skill data
-            const skill = await this._getSkillById(skillId, character.class_id);
-            if (!skill) {
-                throw new Error("Skill not available for your class");
-            }
-
-            // Check if already learned
-            const [existingRows] = await db.query(
-                'SELECT 1 FROM character_skills WHERE character_id = ? AND skill_id = ? LIMIT 1',
-                [characterId, skillId]
-            );
-            
-            if (existingRows?.length) {
-                await db.query('ROLLBACK');
-                return {
-                    success: false,
-                    message: `You already know ${skill.name}`
-                };
-            }
-
-            // Check level requirement
-            if (character.level < (skill.level_required || 1)) {
-                await db.query('ROLLBACK');
-                return {
-                    success: false,
-                    message: `Requires level ${skill.level_required} (you're level ${character.level})`
-                };
-            }
-
-            // Learn the skill
-            await db.query(
-                'INSERT INTO character_skills (character_id, skill_id, unlocked, skill_level) VALUES (?, ?, 1, 1)',
-                [characterId, skillId]
-            );
-
-            await db.query('COMMIT');
-            
-            return {
-                success: true,
-                message: `🎉 Successfully learned: ${skill.name}`,
-                skillName: skill.name,
-                skillId: skillId
-            };
-
-        } catch (error) {
-            await db.query('ROLLBACK');
-            console.error('Failed to learn skill:', error);
+        // Validate inputs
+        characterId = parseInt(characterId);
+        skillId = parseInt(skillId);
+        
+        if (isNaN(characterId)) {
             return {
                 success: false,
-                message: `❌ Failed to learn skill: ${error.message}`
+                message: "Invalid character ID"
             };
         }
-    }
 
-    /**
-     * Internal method to get skill by ID with fallback
-     * @private
-     */
-    async _getSkillById(skillId, classId = null) {
-        try {
-            let query = 'SELECT * FROM skills WHERE skills_id = ?';
-            const params = [skillId];
-            
-            if (classId) {
-                query += ' AND class_id = ?';
-                params.push(classId);
-            }
-
-            const [dbSkill] = await db.query(query, params)
-                .then(([rows]) => rows[0]);
-
-            if (dbSkill) return this._formatSkill(dbSkill);
-
-            // Fallback to hardcoded skills
-            for (const classKey in this.fallbackSkills) {
-                if (classId && classKey !== classId) continue;
-                
-                const skill = this.fallbackSkills[classKey].find(s => s.id === skillId);
-                if (skill) return skill;
-            }
-
-            return null;
-        } catch (error) {
-            console.error('Failed to get skill by ID:', error);
-            return null;
+        if (isNaN(skillId)) {
+            return {
+                success: false,
+                message: "Invalid skill ID"
+            };
         }
-    }
 
-    /**
-     * Format skill data consistently
-     * @private
-     */
+        // Get character with lock
+        const [charRows] = await connection.query(
+            'SELECT * FROM characters WHERE id = ? LIMIT 1 FOR UPDATE',
+            [characterId]
+        );
+        
+        if (!charRows?.length) {
+            return {
+                success: false,
+                message: "Character not found"
+            };
+        }
+        
+        const character = charRows[0];
+        
+        // Get skill data
+        const skill = await this._getSkillById(skillId, character.class_id);
+        if (!skill) {
+            return {
+                success: false,
+                message: "Skill not available for your class"
+            };
+        }
+
+        // Check if already learned
+        const [existingRows] = await connection.query(
+            'SELECT 1 FROM character_skills WHERE character_id = ? AND skill_id = ? LIMIT 1',
+            [characterId, skillId]
+        );
+        
+        if (existingRows?.length) {
+            await connection.rollback();
+            return {
+                success: false,
+                message: `You already know ${skill.name}`
+            };
+        }
+
+        // Check level requirement
+        if (character.level < (skill.level_required || 1)) {
+            await connection.rollback();
+            return {
+                success: false,
+                message: `Requires level ${skill.level_required} (you're level ${character.level})`
+            };
+        }
+
+        // Learn the skill
+        await connection.query(
+            'INSERT INTO character_skills (character_id, skill_id, unlocked, skill_level) VALUES (?, ?, 1, 1)',
+            [characterId, skillId]
+        );
+
+        await connection.commit();
+        
+        return {
+            success: true,
+            message: `🎉 Successfully learned: ${skill.name}`,
+            skillName: skill.name,
+            skillId: skillId
+        };
+
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error('Failed to learn skill:', error);
+        return {
+            success: false,
+            message: error.message || 'Failed to learn skill'
+        };
+    } finally {
+        if (connection) await connection.release();
+    }
+}
+
+async _getSkillById(skillId, classId = null) {
+    try {
+        let query = 'SELECT * FROM skills WHERE skills_id = ?';
+        const params = [skillId];
+        
+        if (classId) {
+            query += ' AND class_id = ?';
+            params.push(classId);
+        }
+
+        // Fix the query execution
+        const [rows] = await db.query(query, params);
+        const dbSkill = rows[0];
+
+        if (dbSkill) return this._formatSkill(dbSkill);
+
+        // Fallback to hardcoded skills
+        for (const classKey in this.fallbackSkills) {
+            if (classId && classKey !== classId) continue;
+            
+            const skill = this.fallbackSkills[classKey].find(s => s.id === skillId);
+            if (skill) return skill;
+        }
+
+        return null;
+    } catch (error) {
+        console.error('Failed to get skill by ID:', error);
+        return null;
+    }
+}
+
     _formatSkill(dbSkill) {
         return {
             id: dbSkill.skills_id,
