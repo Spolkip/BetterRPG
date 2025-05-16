@@ -15,7 +15,7 @@ class RPGClient extends Client {
     });
 
     this.commands = new Collection();
-    this.handler = require('../handlers/characterHandler'); // Add this line
+    this.handler = require('../handlers/characterHandler'); 
     this.loadCommands();
     this.loadEvents();
   }

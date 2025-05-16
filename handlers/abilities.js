@@ -1,6 +1,6 @@
 const db = require('../database/db');
 
-class SkillHandler {
+class AbilityHandler {
     constructor() {
         this.fallbackSkills = {
             warrior: [
@@ -11,7 +11,8 @@ class SkillHandler {
                     cooldown: 8,
                     level_required: 1,
                     mana_cost: 10,
-                    is_passive: false
+                    is_passive: false,
+                    class_id: 'warrior'
                 },
                 {
                     id: 102,
@@ -20,7 +21,8 @@ class SkillHandler {
                     cooldown: 20,
                     level_required: 3,
                     mana_cost: 15,
-                    is_passive: false
+                    is_passive: false,
+                    class_id: 'warrior'
                 }
             ],
             rogue: [
@@ -31,7 +33,8 @@ class SkillHandler {
                     cooldown: 0,
                     level_required: 1,
                     mana_cost: 0,
-                    is_passive: true
+                    is_passive: true,
+                    class_id: 'rogue'
                 }
             ],
             ranged: [
@@ -42,177 +45,272 @@ class SkillHandler {
                     cooldown: 12,
                     level_required: 1,
                     mana_cost: 20,
-                    is_passive: false
+                    is_passive: false,
+                    class_id: 'ranged'
                 }
             ],
             mage: []
         };
     }
 
-    // This enhanced method allows us to look up characters by either their DB ID or Discord user ID
-    async resolveCharacterId(characterIdOrUserId) {
+ async verifyCharacter(characterId) {
         try {
-            // First, check if this is already a numeric character ID
-            if (typeof characterIdOrUserId === 'number' || (typeof characterIdOrUserId === 'string' && !isNaN(characterIdOrUserId) && characterIdOrUserId.length < 15)) {
-                const [charRows] = await db.query(
-                    'SELECT id, class_id, level FROM characters WHERE id = ? LIMIT 1',
-                    [characterIdOrUserId]
-                );
-                
-                if (charRows?.length > 0) {
-                    console.log(`Found character by ID: ${characterIdOrUserId}`);
-                    return charRows[0];
-                }
+            console.log(`[DEBUG] Verifying character ID: ${characterId}`);
+            characterId = parseInt(characterId);
+            if (isNaN(characterId)) {
+                throw new Error('Invalid character ID - not a number');
             }
-            
-            // If that fails or the ID looks like a Discord ID, try looking up by user_id
-            if (typeof characterIdOrUserId === 'string') {
-                console.log(`Looking up character by user_id: ${characterIdOrUserId}`);
-                const [userRows] = await db.query(
-                    'SELECT id, class_id, level FROM characters WHERE user_id = ? LIMIT 1',
-                    [characterIdOrUserId]
-                );
-                
-                if (userRows?.length > 0) {
-                    console.log(`Found character by user_id: ${characterIdOrUserId}, DB ID: ${userRows[0].id}`);
-                    return userRows[0];
-                }
-            }
-            
-            console.log(`No character found for ID/user_id: ${characterIdOrUserId}`);
-            return null;
-        } catch (error) {
-            console.error('Failed to resolve character ID:', error);
-            return null;
-        }
-    }
 
-    async verifyCharacter(characterId) {
-        return this.resolveCharacterId(characterId);
-    }
-
-    async getSkillsForClass(classId) {
-        try {
-            const [skills] = await db.query(
-                'SELECT * FROM skills WHERE class_id = ? ORDER BY level_required ASC',
-                [classId]
-            );
-            
-            if (skills?.length > 0) {
-                return skills.map(this._formatSkill);
-            }
-            
-            // Return fallback skills if no skills found in DB
-            console.log(`Using fallback skills for class: ${classId}`);
-            return this.fallbackSkills[classId] || [];
-        } catch (error) {
-            console.error('Failed to get skills for class:', error);
-            return this.fallbackSkills[classId] || [];
-        }
-    }
-
-    async getCharacterSkills(characterId) {
-        // Use our enhanced resolveCharacterId to handle both types
-        const character = await this.resolveCharacterId(characterId);
-        if (!character) {
-            console.error(`Character not found for ID: ${characterId}`);
-            throw new Error(`Character ${characterId} not found`);
-        }
-
-        try {
-            console.log(`Getting skills for character DB ID: ${character.id}`);
-            const [skills] = await db.query(`
+            console.log(`[DEBUG] Querying database for character ${characterId}`);
+            const [rows] = await db.query(`
                 SELECT 
-                    s.skills_id as id, 
-                    s.name, 
+                    c.id, c.user_id, c.name, c.class_id, c.level,
+                    cl.name AS class_name
+                FROM characters c
+                LEFT JOIN classes cl ON c.class_id = cl.id
+                WHERE c.id = ?
+                LIMIT 1
+            `, [characterId]);
+
+            console.log(`[DEBUG] Query results type:`, typeof rows);
+            console.log(`[DEBUG] Query results:`, rows);
+            
+            // Fix: Handle both array and object responses
+            let character;
+            if (Array.isArray(rows)) {
+                if (rows.length === 0) {
+                    throw new Error(`Character ${characterId} not found in database`);
+                }
+                character = rows[0];
+            } else if (typeof rows === 'object' && rows !== null) {
+                character = rows;
+            } else {
+                throw new Error('Unexpected database response format');
+            }
+
+            console.log(`[DEBUG] Extracted character data:`, character);
+            
+            if (!character || !character.id || !character.class_id) {
+                throw new Error('Character data is incomplete - missing required fields');
+            }
+
+            console.log(`[DEBUG] Successfully verified character:`, {
+                id: character.id,
+                user_id: character.user_id,
+                name: character.name,
+                class_id: character.class_id,
+                level: character.level,
+                class_name: character.class_name
+            });
+            
+            return {
+                id: character.id,
+                user_id: character.user_id,
+                name: character.name,
+                class_id: character.class_id,
+                level: character.level,
+                class_name: character.class_name
+            };
+        } catch (error) {
+            console.error(`[ERROR] Failed to verify character ${characterId}:`, error);
+            throw error;
+        }
+    }
+
+async getCharacterSkills(characterId) {
+        try {
+            console.log(`[DEBUG] Getting skills for character ${characterId}`);
+            const character = await this.verifyCharacter(characterId);
+            
+            if (!character?.id) {
+                console.error('[ERROR] Invalid character data received');
+                return [];
+            }
+
+            console.log(`[DEBUG] Querying skills for character ${character.id}`);
+            
+            // Modified query to properly handle single row vs array results
+            const queryResult = await db.query(`
+                SELECT 
+                    s.skills_id as id,
+                    s.name,
                     s.description,
                     s.level_required,
                     s.mana_cost,
                     s.cooldown,
                     s.is_passive,
-                    cs.unlocked,
-                    cs.skill_level
+                    cs.skill_level,
+                    cs.unlocked
                 FROM character_skills cs
                 JOIN skills s ON cs.skill_id = s.skills_id
-                WHERE cs.character_id = ?
-                ORDER BY s.level_required ASC
+                WHERE cs.character_id = ? AND cs.unlocked = 1
             `, [character.id]);
 
-            return skills || [];
+            // Handle both array and object responses
+            let skills = [];
+            if (Array.isArray(queryResult)) {
+                // MySQL2 returns [rows, fields]
+                skills = Array.isArray(queryResult[0]) ? queryResult[0] : [queryResult[0]];
+            } else if (typeof queryResult === 'object' && queryResult !== null) {
+                skills = [queryResult];
+            }
+
+            console.log(`[DEBUG] Processed skills from database:`, skills);
+
+            // Get passive skills that are automatically known
+            const passiveSkills = this.fallbackSkills[character.class_id]
+                ?.filter(s => s.is_passive)
+                ?.map(s => ({
+                    id: s.id,
+                    name: s.name,
+                    description: s.description,
+                    level_required: s.level_required,
+                    mana_cost: s.mana_cost,
+                    cooldown: s.cooldown,
+                    is_passive: true,
+                    skill_level: 1,
+                    unlocked: 1
+                })) || [];
+
+            // Combine both active and passive skills
+            const allSkills = [
+                ...skills.filter(s => s), // Remove any null/undefined
+                ...passiveSkills
+            ];
+
+            console.log(`[DEBUG] Final combined skills list:`, allSkills);
+            return allSkills;
         } catch (error) {
-            console.error('Failed to get character skills:', error);
+            console.error('[ERROR] Failed to get character skills:', error);
             return [];
         }
     }
+// In AbilityHandler class
+async useSkill(characterId, skillId, enemy) {
+    try {
+        const character = await this.verifyCharacter(characterId);
+        if (!character) {
+            return { success: false, message: "Character not found" };
+        }
 
-    async learnSkill(characterIdOrUserId, skillId) {
+        const skill = await this.getSkillById(skillId, character.class_id);
+        if (!skill) {
+            return { success: false, message: "Skill not found" };
+        }
+
+        // Check if character knows the skill
+        const [knownSkill] = await db.query(
+            'SELECT * FROM character_skills WHERE character_id = ? AND skill_id = ? AND unlocked = 1',
+            [characterId, skillId]
+        );
+
+        if (!knownSkill?.length && !this.fallbackSkills[character.class_id]?.some(s => s.id === skillId)) {
+            return { success: false, message: "You haven't learned this skill" };
+        }
+
+        // Check mana cost
+        if (character.mana < (skill.mana_cost || 0)) {
+            return { success: false, message: "Not enough mana" };
+        }
+
+        // Calculate damage/healing based on skill type
+        let result = { success: true, message: skill.description };
+        
+        if (!skill.is_passive) {
+            // Active skill effects
+            const baseDamage = character.strength * 0.5 + character.dexterity * 0.3;
+            result.damage = Math.round(baseDamage * (Math.random() * 0.5 + 0.75));
+            
+            if (skill.id === 102) { // Regeneration skill
+                result.healing = Math.round(character.max_health * 0.15);
+            }
+            
+            // Deduct mana
+            await db.query(
+                'UPDATE characters SET mana = mana - ? WHERE id = ?',
+                [skill.mana_cost, characterId]
+            );
+        }
+
+        return result;
+    } catch (error) {
+        console.error('Failed to use skill:', error);
+        return { success: false, message: "Failed to use skill" };
+    }
+}
+    async getSkillsForClass(classId) {
+        try {
+            if (!classId) throw new Error('No class specified');
+            
+            // Get skills from database
+            const [dbSkills] = await db.query(
+                'SELECT * FROM skills WHERE class_id = ? ORDER BY level_required ASC',
+                [classId]
+            );
+
+            // Get fallback skills for this class
+            const fallbackSkills = this.fallbackSkills[classId] || [];
+
+            // Combine and format all skills
+            const combinedSkills = [
+                ...(Array.isArray(dbSkills) ? dbSkills.map(skill => this.formatSkill(skill)) : []),
+                ...fallbackSkills.map(skill => this.formatSkill(skill))
+            ];
+
+            return combinedSkills;
+        } catch (error) {
+            console.error(`Failed to get skills for class ${classId}:`, error);
+            return this.fallbackSkills[classId]?.map(skill => this.formatSkill(skill)) || [];
+        }
+    }
+
+async learnSkill(characterId, skillId) {
         let connection;
         try {
+            console.log(`[DEBUG] Attempting to learn skill ${skillId} for character ${characterId}`);
             connection = await db.getConnection();
             await connection.beginTransaction();
 
-            // Use our enhanced resolveCharacterId method
-            const character = await this.resolveCharacterId(characterIdOrUserId);
-            
-            if (!character) {
-                console.error(`Character not found for ID: ${characterIdOrUserId}`);
-                return {
-                    success: false,
-                    message: "Character not found"
-                };
-            }
-            
-            const characterId = character.id; // Always use the database ID
+            characterId = parseInt(characterId);
             skillId = parseInt(skillId);
             
-            if (isNaN(skillId)) {
-                return {
-                    success: false,
-                    message: "Invalid skill ID"
-                };
+            if (isNaN(characterId)) throw new Error("Invalid character ID");
+            if (isNaN(skillId)) throw new Error("Invalid skill ID");
+
+            console.log(`[DEBUG] Verifying character ${characterId}`);
+            const character = await this.verifyCharacter(characterId);
+            if (!character?.class_id) {
+                throw new Error("Character data is invalid - missing class information");
             }
 
-            // Get skill data
-            const skill = await this._getSkillById(skillId, character.class_id);
+            console.log(`[DEBUG] Getting skill ${skillId} for class ${character.class_id}`);
+            const skill = await this.getSkillById(skillId, character.class_id, connection);
             if (!skill) {
-                return {
-                    success: false,
-                    message: "Skill not available for your class"
-                };
+                throw new Error(`Skill ${skillId} not available for class ${character.class_id}`);
             }
 
-            // Check if already learned
-            const [existingRows] = await connection.query(
+            console.log(`[DEBUG] Checking if skill is already learned`);
+            const [existing] = await connection.query(
                 'SELECT 1 FROM character_skills WHERE character_id = ? AND skill_id = ? LIMIT 1',
                 [characterId, skillId]
             );
             
-            if (existingRows?.length) {
-                await connection.rollback();
-                return {
-                    success: false,
-                    message: `You already know ${skill.name}`
-                };
+            if (existing?.length) {
+                throw new Error(`You already know ${skill.name}`);
             }
 
-            // Check level requirement
-            if (character.level < (skill.level_required || 1)) {
-                await connection.rollback();
-                return {
-                    success: false,
-                    message: `Requires level ${skill.level_required} (you're level ${character.level})`
-                };
+            if (character.level < skill.level_required) {
+                throw new Error(`Requires level ${skill.level_required} (current: ${character.level})`);
             }
 
-            console.log(`Learning skill ${skillId} for character ${characterId}`);
-            
-            // Learn the skill
+            console.log(`[DEBUG] Learning skill ${skillId} for character ${characterId}`);
             await connection.query(
                 'INSERT INTO character_skills (character_id, skill_id, unlocked, skill_level) VALUES (?, ?, 1, 1)',
                 [characterId, skillId]
             );
 
             await connection.commit();
+            console.log(`[DEBUG] Successfully learned skill ${skillId}`);
             
             return {
                 success: true,
@@ -222,65 +320,65 @@ class SkillHandler {
             };
 
         } catch (error) {
-            if (connection) await connection.rollback();
-            console.error('Failed to learn skill:', error);
+            console.error('[ERROR] Failed to learn skill:', error);
+            if (connection) {
+                try {
+                    await connection.rollback();
+                    console.log('[DEBUG] Transaction rolled back');
+                } catch (rollbackError) {
+                    console.error('[ERROR] Failed to rollback transaction:', rollbackError);
+                }
+            }
             return {
                 success: false,
-                message: error.message || 'Failed to learn skill'
+                message: error.message
             };
         } finally {
-            if (connection) await connection.release();
+            if (connection) {
+                try {
+                    await connection.release();
+                    console.log('[DEBUG] Connection released');
+                } catch (releaseError) {
+                    console.error('[ERROR] Failed to release connection:', releaseError);
+                }
+            }
         }
     }
 
-    async _getSkillById(skillId, classId = null) {
+
+    async getSkillById(skillId, classId = null, connection = null) {
         try {
-            let query = 'SELECT * FROM skills WHERE skills_id = ?';
-            const params = [skillId];
-            
-            if (classId) {
-                query += ' AND class_id = ?';
-                params.push(classId);
-            }
+            skillId = parseInt(skillId);
+            if (isNaN(skillId)) return null;
 
-            // Execute the query
-            const [rows] = await db.query(query, params);
-            const dbSkill = rows?.[0];
+            const queryFn = connection ? connection.query.bind(connection) : db.query;
+            const [dbSkills] = await queryFn(
+                'SELECT * FROM skills WHERE skills_id = ? AND class_id = ? LIMIT 1',
+                [skillId, classId]
+            );
 
-            if (dbSkill) return this._formatSkill(dbSkill);
+            if (dbSkills?.length) return this.formatSkill(dbSkills[0]);
 
-            // Fallback to hardcoded skills if not found in DB
-            console.log(`Looking for fallback skill ${skillId} for class ${classId}`);
-            for (const classKey in this.fallbackSkills) {
-                if (classId && classKey !== classId) continue;
-                
-                const skill = this.fallbackSkills[classKey].find(s => s.id === parseInt(skillId));
-                if (skill) {
-                    console.log(`Found fallback skill: ${skill.name}`);
-                    return skill;
-                }
-            }
-
-            console.log(`No skill found with ID ${skillId} for class ${classId}`);
-            return null;
+            const fallbackSkill = this.fallbackSkills[classId]?.find(s => s.id === skillId);
+            return fallbackSkill ? this.formatSkill(fallbackSkill) : null;
         } catch (error) {
             console.error('Failed to get skill by ID:', error);
             return null;
         }
     }
 
-    _formatSkill(dbSkill) {
+    formatSkill(skill) {
         return {
-            id: dbSkill.skills_id || dbSkill.id,
-            name: dbSkill.name,
-            description: dbSkill.description,
-            class_id: dbSkill.class_id,
-            level_required: dbSkill.level_required || 1,
-            mana_cost: dbSkill.mana_cost || 0,
-            cooldown: dbSkill.cooldown || 0,
-            is_passive: dbSkill.is_passive || false
+            id: skill.skills_id || skill.id,
+            name: skill.name,
+            description: skill.description,
+            class_id: skill.class_id,
+            level_required: skill.level_required || 1,
+            mana_cost: skill.mana_cost || 0,
+            cooldown: skill.cooldown || 0,
+            is_passive: Boolean(skill.is_passive)
         };
     }
 }
 
-module.exports = new SkillHandler();
+module.exports = new AbilityHandler();

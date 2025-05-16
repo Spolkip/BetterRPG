@@ -22,51 +22,12 @@ class CharacterHandler {
         }
     }
 
-async getCharacterSkills(characterId) {
-    // Check if the input is a user ID rather than a character ID
-    let character;
-    
-    // If the ID is a string and looks like a Discord ID, treat it as user_id
-    if (typeof characterId === 'string' && characterId.length > 15) {
-        // Query by user_id instead
-        const [charRows] = await db.query('SELECT id FROM characters WHERE user_id = ? LIMIT 1', [characterId]);
-        if (charRows && charRows.length > 0) {
-            characterId = charRows[0].id;
-            character = { id: characterId };
-        }
-    } else {
-        // Otherwise verify as a character ID
-        character = await this.verifyCharacter(characterId);
+    async useCharacterSkill(userId, skillId, target = null) {
+        const character = await this.getCharacter(userId);
+        if (!character) return { success: false, message: "Character not found" };
+        
+        return this.skillHandler.useSkill(character.id, skillId, target);
     }
-    
-    if (!character) {
-        throw new Error(`Character ${characterId} not found`);
-    }
-
-    try {
-        const [skills] = await db.query(`
-            SELECT 
-                s.skills_id as id, 
-                s.name, 
-                s.description,
-                s.level_required,
-                s.mana_cost,
-                s.cooldown,
-                s.is_passive,
-                cs.unlocked,
-                cs.skill_level
-            FROM character_skills cs
-            JOIN skills s ON cs.skill_id = s.skills_id
-            WHERE cs.character_id = ?
-            ORDER BY s.level_required ASC
-        `, [character.id]);
-
-        return skills || [];
-    } catch (error) {
-        console.error('Failed to get character skills:', error);
-        return [];
-    }
-}
     
     async getCharacter(userId) {
         try {
@@ -85,7 +46,24 @@ async getCharacterSkills(characterId) {
             return null;
         }
     }
-
+async getCharacterById(characterId) {
+    try {
+        const [rows] = await db.query(`
+            SELECT c.*, cl.name AS class_name, cl.emoji AS class_emoji, 
+                   r.name AS race_name, r.emoji AS race_emoji
+            FROM characters c
+            JOIN classes cl ON c.class_id = cl.id
+            JOIN races r ON c.race_id = r.id
+            WHERE c.id = ?
+            LIMIT 1
+        `, [characterId]);
+        
+        return rows[0] || null;
+    } catch (error) {
+        console.error('Error in getCharacterById:', error);
+        return null;
+    }
+}
         async verifyCharacter(characterId) {
         try {
             const [rows] = await db.query(
@@ -407,4 +385,5 @@ async getCharacterSkills(characterId) {
     }
 }
 
-module.exports = new CharacterHandler();
+const characterHandlerInstance = new CharacterHandler();
+module.exports = characterHandlerInstance;
