@@ -69,32 +69,36 @@ class SkillsCommand {
         }
     }
 
-static async _handleLearnSkill(context, character, skillId) {
-    try {
-        if (!skillId || isNaN(skillId)) {
-            return context.reply('❌ Please provide a valid skill ID! Example: `rpg skills learn 301`');
-        }
-
-        const result = await skillHandler.learnSkill(character.id, skillId);
-        
-        // Ensure result exists and has success property
-        if (result && typeof result.success !== 'undefined') {
-            if (result.success) {
-                return context.reply(`🎉 Successfully learned: **${result.skillName}** (ID: ${skillId})`);
+    static async _handleLearnSkill(context, character, skillId) {
+        try {
+            if (!skillId || isNaN(skillId)) {
+                return context.reply('❌ Please provide a valid skill ID! Example: `rpg skills learn 301`');
             }
-            return context.reply(`❌ ${result.message || 'Failed to learn skill'}`);
-        }
 
-        // Fallback error if result format is unexpected
-        return context.reply('❌ An unexpected error occurred while learning the skill.');
-    } catch (error) {
-        console.error('Failed to learn skill:', error);
-        return context.reply('❌ An error occurred while learning the skill.');
+            const result = await skillHandler.learnSkill(character.id, skillId);
+            
+            // Ensure result exists and has success property
+            if (result && typeof result.success !== 'undefined') {
+                if (result.success) {
+                    return context.reply(`🎉 Successfully learned: **${result.skillName}** (ID: ${skillId})`);
+                }
+                return context.reply(`❌ ${result.message || 'Failed to learn skill'}`);
+            }
+
+            // Fallback error if result format is unexpected
+            return context.reply('❌ An unexpected error occurred while learning the skill.');
+        } catch (error) {
+            console.error('Failed to learn skill:', error);
+            return context.reply('❌ An error occurred while learning the skill.');
+        }
     }
-}
 
     static async _handleMySkills(context, character) {
         try {
+            // Important: pass the character.id (numeric DB ID) to getCharacterSkills
+            // Add debug logging to trace the issue
+            console.log(`Getting skills for character: ${character.id} (user: ${context.user.id})`);
+            
             const skills = await skillHandler.getCharacterSkills(character.id);
             
             if (!skills.length) {
@@ -126,10 +130,13 @@ static async _handleLearnSkill(context, character, skillId) {
 
     static async handleCommand(context) {
         try {
+            console.log(`Handling skills command for user: ${context.user.id}`);
             const character = await CharacterHandler.getCharacter(context.user.id);
             if (!character) {
                 return context.reply('❌ You need to create a character first! Use `/create`');
             }
+            
+            console.log(`Found character: ${JSON.stringify(character)}`);
 
             const subcommand = context.options?.getSubcommand?.() || 'list';
             const skillId = context.options?.getInteger?.('skill_id');
@@ -177,6 +184,8 @@ static async _handleLearnSkill(context, character, skillId) {
     static async handlePrefixCommand(message, args) {
         const subcommand = args[0]?.toLowerCase() || 'list';
         const skillId = args[1] ? parseInt(args[1]) : null;
+
+        console.log(`Handling prefix command skills with args: ${JSON.stringify(args)}`);
 
         const context = {
             user: message.author,
