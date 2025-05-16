@@ -46,14 +46,18 @@ class SkillsCommand {
                 throw new Error('Character missing class information');
             }
 
+            console.log(`Listing skills for ${character.name}, class: ${character.class_id}`);
+
             const [availableSkills, learnedSkills] = await Promise.all([
                 skillHandler.getSkillsForClass(character.class_id),
                 skillHandler.getCharacterSkills(character.id).catch(() => [])
             ]);
 
+            console.log(`Found ${availableSkills.length} available skills and ${learnedSkills.length} learned skills`);
+
             const learnedSkillIds = new Set(learnedSkills.map(s => s.id));
             const embed = this._buildSkillsEmbed(
-                `Available ${character.class_id} Skills`, 
+                `Available ${character.class_name} Skills`, 
                 availableSkills, 
                 learnedSkillIds
             );
@@ -75,6 +79,8 @@ class SkillsCommand {
                 return context.reply('❌ Please provide a valid skill ID! Example: `rpg skills learn 301`');
             }
 
+            // Pass the character ID (not user ID) to learnSkill
+            console.log(`Attempting to learn skill ${skillId} for character ${character.id}`);
             const result = await skillHandler.learnSkill(character.id, skillId);
             
             // Ensure result exists and has success property
@@ -96,7 +102,6 @@ class SkillsCommand {
     static async _handleMySkills(context, character) {
         try {
             // Important: pass the character.id (numeric DB ID) to getCharacterSkills
-            // Add debug logging to trace the issue
             console.log(`Getting skills for character: ${character.id} (user: ${context.user.id})`);
             
             const skills = await skillHandler.getCharacterSkills(character.id);
@@ -113,7 +118,7 @@ class SkillsCommand {
             skills.forEach(skill => {
                 embed.addFields({
                     name: `${skill.name} (ID: ${skill.id})`,
-                    value: this._formatSkillDetails(skill),
+                    value: `${skill.description}\n${this._formatSkillDetails(skill)}`,
                     inline: false
                 });
             });

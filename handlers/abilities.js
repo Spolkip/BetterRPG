@@ -1,8 +1,4 @@
-// First, let's update the abilities.js file to fix the character verification
-
-// Fix for handlers/abilities.js
 const db = require('../database/db');
-const characterHandler = require('./characterHandler');
 
 class SkillHandler {
     constructor() {
@@ -53,35 +49,46 @@ class SkillHandler {
         };
     }
 
-    async verifyCharacter(characterId) {
+    // This enhanced method allows us to look up characters by either their DB ID or Discord user ID
+    async resolveCharacterId(characterIdOrUserId) {
         try {
-            // First try to look up by character ID
-            const [rows] = await db.query(
-                'SELECT id, class_id, level FROM characters WHERE id = ? LIMIT 1',
-                [characterId]
-            );
-            
-            if (rows && rows.length > 0) {
-                return rows[0];
-            }
-            
-            // If not found and it looks like a Discord ID, try by user_id
-            if (typeof characterId === 'string' && characterId.length > 15) {
-                const [userRows] = await db.query(
-                    'SELECT id, class_id, level FROM characters WHERE user_id = ? LIMIT 1',
-                    [characterId]
+            // First, check if this is already a numeric character ID
+            if (typeof characterIdOrUserId === 'number' || (typeof characterIdOrUserId === 'string' && !isNaN(characterIdOrUserId) && characterIdOrUserId.length < 15)) {
+                const [charRows] = await db.query(
+                    'SELECT id, class_id, level FROM characters WHERE id = ? LIMIT 1',
+                    [characterIdOrUserId]
                 );
                 
-                if (userRows && userRows.length > 0) {
+                if (charRows?.length > 0) {
+                    console.log(`Found character by ID: ${characterIdOrUserId}`);
+                    return charRows[0];
+                }
+            }
+            
+            // If that fails or the ID looks like a Discord ID, try looking up by user_id
+            if (typeof characterIdOrUserId === 'string') {
+                console.log(`Looking up character by user_id: ${characterIdOrUserId}`);
+                const [userRows] = await db.query(
+                    'SELECT id, class_id, level FROM characters WHERE user_id = ? LIMIT 1',
+                    [characterIdOrUserId]
+                );
+                
+                if (userRows?.length > 0) {
+                    console.log(`Found character by user_id: ${characterIdOrUserId}, DB ID: ${userRows[0].id}`);
                     return userRows[0];
                 }
             }
             
+            console.log(`No character found for ID/user_id: ${characterIdOrUserId}`);
             return null;
         } catch (error) {
-            console.error('Failed to verify character:', error);
+            console.error('Failed to resolve character ID:', error);
             return null;
         }
+    }
+
+    async verifyCharacter(characterId) {
+        return this.resolveCharacterId(characterId);
     }
 
     async getSkillsForClass(classId) {
@@ -94,6 +101,9 @@ class SkillHandler {
             if (skills?.length > 0) {
                 return skills.map(this._formatSkill);
             }
+            
+            // Return fallback skills if no skills found in DB
+            console.log(`Using fallback skills for class: ${classId}`);
             return this.fallbackSkills[classId] || [];
         } catch (error) {
             console.error('Failed to get skills for class:', error);
@@ -102,15 +112,15 @@ class SkillHandler {
     }
 
     async getCharacterSkills(characterId) {
-        // Call our improved verifyCharacter which handles both ID types
-        const character = await this.verifyCharacter(characterId);
-        
+        // Use our enhanced resolveCharacterId to handle both types
+        const character = await this.resolveCharacterId(characterId);
         if (!character) {
             console.error(`Character not found for ID: ${characterId}`);
             throw new Error(`Character ${characterId} not found`);
         }
 
         try {
+            console.log(`Getting skills for character DB ID: ${character.id}`);
             const [skills] = await db.query(`
                 SELECT 
                     s.skills_id as id, 
@@ -135,23 +145,24 @@ class SkillHandler {
         }
     }
 
-    async learnSkill(characterId, skillId) {
+    async learnSkill(characterIdOrUserId, skillId) {
         let connection;
         try {
             connection = await db.getConnection();
             await connection.beginTransaction();
 
-            // First, verify character with our improved method
-            const character = await this.verifyCharacter(characterId);
+            // Use our enhanced resolveCharacterId method
+            const character = await this.resolveCharacterId(characterIdOrUserId);
             
             if (!character) {
+                console.error(`Character not found for ID: ${characterIdOrUserId}`);
                 return {
                     success: false,
                     message: "Character not found"
                 };
             }
             
-            characterId = character.id; // Ensure we use the database ID
+            const characterId = character.id; // Always use the database ID
             skillId = parseInt(skillId);
             
             if (isNaN(skillId)) {
@@ -193,6 +204,8 @@ class SkillHandler {
                 };
             }
 
+            console.log(`Learning skill ${skillId} for character ${characterId}`);
+            
             // Learn the skill
             await connection.query(
                 'INSERT INTO character_skills (character_id, skill_id, unlocked, skill_level) VALUES (?, ?, 1, 1)',
@@ -230,20 +243,25 @@ class SkillHandler {
                 params.push(classId);
             }
 
-            // Fix the query execution
+            // Execute the query
             const [rows] = await db.query(query, params);
-            const dbSkill = rows[0];
+            const dbSkill = rows?.[0];
 
             if (dbSkill) return this._formatSkill(dbSkill);
 
-            // Fallback to hardcoded skills
+            // Fallback to hardcoded skills if not found in DB
+            console.log(`Looking for fallback skill ${skillId} for class ${classId}`);
             for (const classKey in this.fallbackSkills) {
                 if (classId && classKey !== classId) continue;
                 
-                const skill = this.fallbackSkills[classKey].find(s => s.id === skillId);
-                if (skill) return skill;
+                const skill = this.fallbackSkills[classKey].find(s => s.id === parseInt(skillId));
+                if (skill) {
+                    console.log(`Found fallback skill: ${skill.name}`);
+                    return skill;
+                }
             }
 
+            console.log(`No skill found with ID ${skillId} for class ${classId}`);
             return null;
         } catch (error) {
             console.error('Failed to get skill by ID:', error);
@@ -253,7 +271,7 @@ class SkillHandler {
 
     _formatSkill(dbSkill) {
         return {
-            id: dbSkill.skills_id,
+            id: dbSkill.skills_id || dbSkill.id,
             name: dbSkill.name,
             description: dbSkill.description,
             class_id: dbSkill.class_id,
